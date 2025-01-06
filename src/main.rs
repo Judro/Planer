@@ -19,13 +19,27 @@ struct Logins {
 
 struct SessionCache {
     sessions: Mutex<LinkedHashMap<String, String>>,
-    len: usize,
+    len: Mutex<usize>,
 }
 
 #[get("/")]
-async fn hello(session: Session, cached_sessions: web::Data<SessionCache>) -> impl Responder {
-    let username: String = session.get("username").unwrap().unwrap();
+async fn hello(session: Session, session_cache: web::Data<SessionCache>) -> impl Responder {
+    let username: String = match session.get("username") {
+        Ok(o) => match o {
+            Some(s) => s,
+            None => {
+                return HttpResponse::Unauthorized().body("Please register or login");
+            }
+        },
+        Err(_) => {
+            return HttpResponse::Unauthorized().body("Please register or login");
+        }
+    };
     let session_id: String = session.get("session_id").unwrap().unwrap();
+    let mut locked_session_cache = session_cache.sessions.lock().unwrap();
+    if *locked_session_cache.get(&username).unwrap() != session_id {
+        return HttpResponse::Unauthorized().body("Please register or login");
+    }
     HttpResponse::Ok().body(format!("Hello {} with id {}", username, session_id))
 }
 
@@ -33,15 +47,18 @@ async fn hello(session: Session, cached_sessions: web::Data<SessionCache>) -> im
 async fn login_verify(
     login_data: web::Form<LoginData>,
     data: web::Data<Logins>,
+    session_cache: web::Data<SessionCache>,
     session: Session,
 ) -> impl Responder {
     let mut locked_login = data.logins.lock().unwrap();
+    let mut locked_session_cache = session_cache.sessions.lock().unwrap();
     let session_id = Uuid::new_v4().to_string();
     match locked_login.get(&login_data.username) {
         Some(l) => {
             if *l == login_data.password {
                 session.insert("username", &login_data.username);
                 session.insert("session_id", &session_id);
+                locked_session_cache.insert(login_data.username.clone(), session_id);
                 HttpResponse::Ok().body(format!(
                     "login{},{}",
                     login_data.username, login_data.password
@@ -54,6 +71,7 @@ async fn login_verify(
             locked_login.insert(login_data.username.clone(), login_data.password.clone());
             session.insert("username", &login_data.username);
             session.insert("session_id", &session_id);
+            locked_session_cache.insert(login_data.username.clone(), session_id);
             HttpResponse::Ok().body(format!(
                 "register{},{}",
                 login_data.username.clone(),
@@ -115,7 +133,7 @@ async fn main() -> std::io::Result<()> {
     });
     let sessions = web::Data::new(SessionCache {
         sessions: Mutex::new(LinkedHashMap::<String, String>::with_capacity(1000)),
-        len: 0,
+        len: Mutex::new(0),
     });
     HttpServer::new(move || {
         App::new()
