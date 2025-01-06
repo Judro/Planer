@@ -1,17 +1,17 @@
 use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder, Result};
-use serde::Deserialize;
 use env_logger::Env;
-use std::sync::Mutex;
+use serde::Deserialize;
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 #[derive(Deserialize)]
 struct LoginData {
     username: String,
     password: String,
-} 
+}
 
-struct Logins{
-    logins: Mutex<HashMap<String,String>>,
+struct Logins {
+    logins: Mutex<HashMap<String, String>>,
 }
 
 #[get("/")]
@@ -21,9 +21,27 @@ async fn hello() -> impl Responder {
 
 #[post("/login")]
 async fn login_verify(login_data: web::Form<LoginData>, data: web::Data<Logins>) -> impl Responder {
-    if *data.logins.lock().unwrap().get(&login_data.username).unwrap() == login_data.password {
-    HttpResponse::Ok().body(format!("{},{}", login_data.username, login_data.password) )
-    } else { HttpResponse::Err().body("500 Wrong password") }
+    let mut locked_login = data.logins.lock().unwrap();
+    match locked_login.get(&login_data.username) {
+        Some(l) => {
+            if *l == login_data.password {
+                HttpResponse::Ok().body(format!(
+                    "login{},{}",
+                    login_data.username, login_data.password
+                ))
+            } else {
+                panic!("wrong passorw")
+            }
+        }
+        None => {
+            locked_login.insert(login_data.username.clone(), login_data.password.clone());
+            HttpResponse::Ok().body(format!(
+                "register{},{}",
+                login_data.username.clone(),
+                login_data.password.clone()
+            ))
+        }
+    }
 }
 
 #[get("/login")]
@@ -74,11 +92,11 @@ async fn manual_hello() -> impl Responder {
 async fn main() -> std::io::Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
     let logins = web::Data::new(Logins {
-        logins: Mutex::new(HashMap::<String,String>::new()),
+        logins: Mutex::new(HashMap::<String, String>::new()),
     });
     HttpServer::new(move || {
         App::new()
-	    .app_data(logins.clone())
+            .app_data(logins.clone())
             .service(hello)
             .service(echo)
             .service(login)
@@ -89,4 +107,3 @@ async fn main() -> std::io::Result<()> {
     .run()
     .await
 }
-

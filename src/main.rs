@@ -1,5 +1,7 @@
-use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder, Result};
+use actix_session::{storage::CookieSessionStore, Session, SessionMiddleware};
+use actix_web::{cookie::Key, get, post, web, App, HttpResponse, HttpServer, Responder, Result};
 use env_logger::Env;
+use hashlink::LinkedHashMap;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -14,17 +16,28 @@ struct Logins {
     logins: Mutex<HashMap<String, String>>,
 }
 
+struct SessionCache {
+    sessions: Mutex<LinkedHashMap<String, String>>,
+    len: usize,
+}
+
 #[get("/")]
-async fn hello() -> impl Responder {
-    HttpResponse::Ok().body("Hello world!")
+async fn hello(session: Session) -> impl Responder {
+    let username: String = session.get("username").unwrap().unwrap();
+    HttpResponse::Ok().body(format!("Hello {}", username))
 }
 
 #[post("/login")]
-async fn login_verify(login_data: web::Form<LoginData>, data: web::Data<Logins>) -> impl Responder {
+async fn login_verify(
+    login_data: web::Form<LoginData>,
+    data: web::Data<Logins>,
+    session: Session,
+) -> impl Responder {
     let mut locked_login = data.logins.lock().unwrap();
     match locked_login.get(&login_data.username) {
         Some(l) => {
             if *l == login_data.password {
+                session.insert("username", &login_data.username);
                 HttpResponse::Ok().body(format!(
                     "login{},{}",
                     login_data.username, login_data.password
@@ -35,6 +48,7 @@ async fn login_verify(login_data: web::Form<LoginData>, data: web::Data<Logins>)
         }
         None => {
             locked_login.insert(login_data.username.clone(), login_data.password.clone());
+            session.insert("username", &login_data.username);
             HttpResponse::Ok().body(format!(
                 "register{},{}",
                 login_data.username.clone(),
@@ -94,9 +108,19 @@ async fn main() -> std::io::Result<()> {
     let logins = web::Data::new(Logins {
         logins: Mutex::new(HashMap::<String, String>::new()),
     });
+    let sessions = web::Data::new(SessionCache {
+        sessions: Mutex::new(LinkedHashMap::<String, String>::with_capacity(1000)),
+        len: 0,
+    });
     HttpServer::new(move || {
         App::new()
             .app_data(logins.clone())
+            .wrap(
+                // Session middleware setup
+                SessionMiddleware::builder(CookieSessionStore::default(), Key::from(&[0; 64]))
+                    .cookie_secure(false)
+                    .build(),
+            )
             .service(hello)
             .service(echo)
             .service(login)
