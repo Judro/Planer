@@ -5,6 +5,7 @@ use hashlink::LinkedHashMap;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use uuid::Uuid;
 
 #[derive(Deserialize)]
 struct LoginData {
@@ -22,9 +23,10 @@ struct SessionCache {
 }
 
 #[get("/")]
-async fn hello(session: Session) -> impl Responder {
+async fn hello(session: Session, cached_sessions: web::Data<SessionCache>) -> impl Responder {
     let username: String = session.get("username").unwrap().unwrap();
-    HttpResponse::Ok().body(format!("Hello {}", username))
+    let session_id: String = session.get("session_id").unwrap().unwrap();
+    HttpResponse::Ok().body(format!("Hello {} with id {}", username, session_id))
 }
 
 #[post("/login")]
@@ -34,10 +36,12 @@ async fn login_verify(
     session: Session,
 ) -> impl Responder {
     let mut locked_login = data.logins.lock().unwrap();
+    let session_id = Uuid::new_v4().to_string();
     match locked_login.get(&login_data.username) {
         Some(l) => {
             if *l == login_data.password {
                 session.insert("username", &login_data.username);
+                session.insert("session_id", &session_id);
                 HttpResponse::Ok().body(format!(
                     "login{},{}",
                     login_data.username, login_data.password
@@ -49,6 +53,7 @@ async fn login_verify(
         None => {
             locked_login.insert(login_data.username.clone(), login_data.password.clone());
             session.insert("username", &login_data.username);
+            session.insert("session_id", &session_id);
             HttpResponse::Ok().body(format!(
                 "register{},{}",
                 login_data.username.clone(),
@@ -115,6 +120,7 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(logins.clone())
+            .app_data(sessions.clone())
             .wrap(
                 // Session middleware setup
                 SessionMiddleware::builder(CookieSessionStore::default(), Key::from(&[0; 64]))

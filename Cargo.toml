@@ -1,5 +1,5 @@
 [package]
-name = "stallgasse"
+name = "schedix"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,4 +9,5 @@ actix-web = { version = "4.9.0" }
 env_logger = "0.11.6"
 hashlink = "0.10.0"
 serde = { version = "1.0.217", features = ["derive"] }
+uuid = { version = "1.11.0", features = ["v4"] }
 
