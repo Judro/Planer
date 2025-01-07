@@ -19,7 +19,6 @@ struct Logins {
 
 struct SessionCache {
     sessions: Mutex<LinkedHashMap<String, String>>,
-    len: Mutex<usize>,
 }
 
 #[get("/")]
@@ -28,11 +27,11 @@ async fn hello(session: Session, session_cache: web::Data<SessionCache>) -> impl
         Ok(o) => match o {
             Some(s) => s,
             None => {
-                return HttpResponse::Unauthorized().body("Please register or login");
+                return HttpResponse::Unauthorized().body("Please register or login none");
             }
         },
         Err(_) => {
-            return HttpResponse::Unauthorized().body("Please register or login");
+            return HttpResponse::Unauthorized().body("Please register or login error");
         }
     };
     let session_id: String = session.get("session_id").unwrap().unwrap();
@@ -53,6 +52,9 @@ async fn login_verify(
     let mut locked_login = data.logins.lock().unwrap();
     let mut locked_session_cache = session_cache.sessions.lock().unwrap();
     let session_id = Uuid::new_v4().to_string();
+    if locked_session_cache.len() + 10 == locked_session_cache.capacity() {
+        locked_session_cache.clear();
+    }
     match locked_login.get(&login_data.username) {
         Some(l) => {
             if *l == login_data.password {
@@ -133,7 +135,6 @@ async fn main() -> std::io::Result<()> {
     });
     let sessions = web::Data::new(SessionCache {
         sessions: Mutex::new(LinkedHashMap::<String, String>::with_capacity(1000)),
-        len: Mutex::new(0),
     });
     HttpServer::new(move || {
         App::new()
