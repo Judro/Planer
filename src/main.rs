@@ -1,5 +1,5 @@
 mod auth;
-use crate::auth::{login, login_verify, Logins, SessionCache};
+use crate::auth::{get_login, get_register, login, register, Logins, SessionCache};
 use actix_session::{storage::CookieSessionStore, Session, SessionMiddleware};
 use actix_web::{cookie::Key, get, post, web, App, HttpResponse, HttpServer, Responder, Result};
 use env_logger::Env;
@@ -50,8 +50,10 @@ async fn main() -> std::io::Result<()> {
                     .build(),
             )
             .service(hello)
+            .service(get_login)
+            .service(get_register)
             .service(login)
-            .service(login_verify)
+            .service(register)
     })
     .bind(("127.0.0.1", 8080))?
     .run()
